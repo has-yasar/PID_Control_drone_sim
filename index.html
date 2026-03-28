@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Drone Simülasyonu</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <h1>2D Drone Simülasyonu</h1>
+            <p style="color: var(--accent); font-weight: 600; margin-bottom: 8px;">Yaşar HAS tarafından geliştirilmiştir</p>
+            <p>Adjust parameters to see how the drone reacts in real-time.</p>
+        </header>
+
+        <main>
+            <div class="panel controls">
+                <h2>Control Panel</h2>
+                
+                <div class="control-group">
+                    <label for="kp">Proportional (Kp): <span id="kp-val">0.8</span></label>
+                    <input type="range" id="kp" min="0" max="5" step="0.1" value="0.8">
+                </div>
+                
+                <div class="control-group">
+                    <label for="ki">Integral (Ki): <span id="ki-val">0.1</span></label>
+                    <input type="range" id="ki" min="0" max="2" step="0.05" value="0.1">
+                </div>
+                
+                <div class="control-group">
+                    <label for="kd">Derivative (Kd): <span id="kd-val">1.6</span></label>
+                    <input type="range" id="kd" min="0" max="5" step="0.1" value="1.6">
+                </div>
+                
+                <div class="control-group">
+                    <label for="targetX">Target X (m): <span id="targetX-val">15</span></label>
+                    <input type="range" id="targetX" min="-30" max="30" step="1" value="15">
+                </div>
+                
+                <div class="control-group">
+                    <label for="targetY">Target Y Altitude (m): <span id="targetY-val">10</span></label>
+                    <input type="range" id="targetY" min="5" max="30" step="1" value="10">
+                </div>
+
+                <div class="control-group">
+                    <label for="mass">Drone Mass (kg): <span id="mass-val">1.2</span></label>
+                    <input type="range" id="mass" min="0.5" max="5" step="0.1" value="1.2">
+                </div>
+
+                <button id="run-btn">Run Simulation</button>
+            </div>
+
+            <div class="panel simulation-view">
+                <div class="charts">
+                    <div class="chart-container">
+                        <canvas id="trajectoryChart"></canvas>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="thrustChart"></canvas>
+                    </div>
+                </div>
+                <div class="visualizer">
+                    <div id="target-notice" class="target-notice hidden">Hedef konuma ulaşıldı ✓</div>
+                    <div id="obstacles-container"></div>
+                    <div class="drone-container">
+                        <div class="drone" id="drone">
+                            <div class="propeller left"></div>
+                            <div class="body">
+                                <div class="light" id="drone-light"></div>
+                            </div>
+                            <div class="propeller right"></div>
+                        </div>
+                        <div class="target-point" id="target-point">
+                            <span class="target-label">Target</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

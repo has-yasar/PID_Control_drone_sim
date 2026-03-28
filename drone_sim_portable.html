@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Drone Simülasyonu</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-gradient: linear-gradient(135deg, #0f172a, #1e293b);
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --accent: #38bdf8;
+            --accent-glow: rgba(56, 189, 248, 0.5);
+            --target-color: #ef4444;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --panel-radius: 16px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-gradient);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .app-container {
+            width: 95%;
+            max-width: 1400px;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 10px 0;
+        }
+
+        header h1 {
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            margin-bottom: 5px;
+            color: var(--accent);
+            text-shadow: 0 0 10px var(--accent-glow);
+        }
+
+        header p {
+            color: var(--text-muted);
+        }
+
+        main {
+            display: flex;
+            gap: 20px;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Make it responsive for mobile */
+        @media (max-width: 768px) {
+            main {
+                flex-direction: column-reverse;
+                /* Controls at bottom */
+                overflow-y: auto;
+            }
+
+            .app-container {
+                height: auto;
+                padding-bottom: 20px;
+            }
+
+            .controls {
+                flex: none;
+            }
+
+            .simulation-view {
+                height: 60vh;
+                /* Fixed height on mobile for simulation */
+            }
+
+            .charts {
+                display: none;
+                /* Hide charts on very small screens to save space */
+            }
+        }
+
+        .panel {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--panel-radius);
+            padding: 24px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .controls {
+            flex: 0 0 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .controls h2 {
+            font-size: 1.2rem;
+            margin-bottom: 10px;
+            border-bottom: 1px solid var(--glass-border);
+            padding-bottom: 10px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .control-group label {
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .control-group span {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.1);
+            height: 6px;
+            border-radius: 4px;
+            outline: none;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--accent);
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
+
+        button {
+            margin-top: auto;
+            background: var(--accent);
+            color: #0f172a;
+            border: none;
+            padding: 14px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 25px var(--accent-glow);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .simulation-view {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .charts {
+            display: flex;
+            gap: 20px;
+            height: 60%;
+        }
+
+        .chart-container {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            padding: 10px;
+            position: relative;
+            border: 1px solid var(--glass-border);
+        }
+
+        .visualizer {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid var(--glass-border);
+            cursor: pointer;
+            /* Added cursor pointer for interactability */
+        }
+
+        /* Target Reached Notification */
+        .target-notice {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(16, 185, 129, 0.9);
+            /* Emerald Green */
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+            z-index: 10;
+            opacity: 1;
+            transition: opacity 0.3s ease, top 0.3s ease;
+        }
+
+        .target-notice.hidden {
+            opacity: 0;
+            top: 0px;
+            pointer-events: none;
+        }
+
+        /* Obstacles */
+        #obstacles-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            /* Let clicks pass through to the visualizer */
+            z-index: 5;
+        }
+
+        .obstacle-point {
+            position: absolute;
+            background: repeating-linear-gradient(45deg,
+                    rgba(239, 68, 68, 0.2),
+                    rgba(239, 68, 68, 0.2) 10px,
+                    rgba(255, 255, 255, 0.1) 10px,
+                    rgba(255, 255, 255, 0.1) 20px);
+            border: 2px solid #ef4444;
+            /* Red border */
+            border-radius: 50%;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
+            transform: translate(-50%, 50%);
+            /* Centered around its coordinates (bottom left origin) */
+        }
+
+        .obstacle-line {
+            position: absolute;
+            background: repeating-linear-gradient(45deg,
+                    rgba(249, 115, 22, 0.2),
+                    /* Orange border */
+                    rgba(249, 115, 22, 0.2) 10px,
+                    rgba(255, 255, 255, 0.1) 10px,
+                    rgba(255, 255, 255, 0.1) 20px);
+            border: 2px solid #f97316;
+            border-radius: 4px;
+            box-shadow: 0 0 15px rgba(249, 115, 22, 0.5);
+            transform-origin: left top;
+        }
+
+        .target-point {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--target-color);
+            bottom: 30%;
+            /* Will be updated via JS */
+            left: 50%;
+            /* Will be updated via JS */
+            transform: translate(-50%, 50%);
+            box-shadow: 0 0 10px var(--target-color), 0 0 20px var(--target-color);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .target-label {
+            position: absolute;
+            right: -45px;
+            top: -20px;
+            color: var(--target-color);
+            font-size: 0.8rem;
+            font-weight: bold;
+            text-shadow: 0 0 5px rgba(0, 0, 0, 0.8);
+        }
+
+        .drone {
+            position: absolute;
+            bottom: 0;
+            /* Will be updated via JS */
+            left: 50%;
+            /* Center is 50% */
+            transform: translateX(-50%);
+            width: 80px;
+            /* Base width */
+            height: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 2;
+            transition: bottom 0.05s linear, left 0.05s linear;
+        }
+
+        /* Make drone visual scale down on mobile to not take up entire screen */
+        @media (max-width: 768px) {
+            .drone {
+                width: 50px;
+            }
+
+            .body {
+                width: 25px !important;
+                height: 8px !important;
+            }
+
+            .propeller {
+                width: 12px !important;
+                height: 3px !important;
+            }
+        }
+
+        .body {
+            width: 40px;
+            height: 12px;
+            background: var(--accent);
+            border-radius: 6px;
+            box-shadow: 0 0 15px var(--accent-glow);
+            position: relative;
+            /* So the light can be positioned inside */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Drone Proximity Light */
+        .light {
+            width: 6px;
+            height: 6px;
+            background: #475569;
+            /* Dark off state */
+            border-radius: 50%;
+            transition: background 0.2s;
+        }
+
+        .light.blinking-red {
+            background: #ef4444;
+            /* Bright red */
+            box-shadow: 0 0 10px #ef4444;
+            animation: blinkLightRed 0.3s alternate infinite;
+            /* Fast pulse */
+        }
+
+        @keyframes blinkLightRed {
+            0% {
+                opacity: 0.3;
+                box-shadow: 0 0 2px #ef4444;
+            }
+
+            100% {
+                opacity: 1;
+                box-shadow: 0 0 15px #ef4444, 0 0 5px #ef4444;
+            }
+        }
+
+        .light.blinking-green {
+            background: #10b981;
+            /* Bright green */
+            box-shadow: 0 0 10px #10b981;
+            animation: blinkLightGreen 0.3s alternate infinite;
+            /* Fast pulse */
+        }
+
+        @keyframes blinkLightGreen {
+            0% {
+                opacity: 0.3;
+                box-shadow: 0 0 2px #10b981;
+            }
+
+            100% {
+                opacity: 1;
+                box-shadow: 0 0 15px #10b981, 0 0 5px #10b981;
+            }
+        }
+
+        .propeller {
+            width: 20px;
+            height: 4px;
+            background: #cbd5e1;
+            border-radius: 2px;
+            animation: spin 0.05s linear infinite;
+            box-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+        }
+
+        @keyframes spin {
+            0% {
+                transform: scaleX(1);
+            }
+
+            50% {
+                transform: scaleX(0.1);
+            }
+
+            100% {
+                transform: scaleX(1);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app-container">
+        <header>
+            <h1>2D Drone Simülasyonu</h1>
+            <p style="color: var(--accent); font-weight: 600; margin-bottom: 8px;">Yaşar HAS tarafından geliştirilmiştir
+            </p>
+            <p>Adjust parameters to see how the drone reacts in real-time.</p>
+        </header>
+
+        <main>
+            <div class="panel controls">
+                <h2>Control Panel</h2>
+
+                <div class="control-group">
+                    <label for="kp">Proportional (Kp): <span id="kp-val">0.8</span></label>
+                    <input type="range" id="kp" min="0" max="5" step="0.1" value="0.8">
+                </div>
+
+                <div class="control-group">
+                    <label for="ki">Integral (Ki): <span id="ki-val">0.1</span></label>
+                    <input type="range" id="ki" min="0" max="2" step="0.05" value="0.1">
+                </div>
+
+                <div class="control-group">
+                    <label for="kd">Derivative (Kd): <span id="kd-val">1.6</span></label>
+                    <input type="range" id="kd" min="0" max="5" step="0.1" value="1.6">
+                </div>
+
+                <div class="control-group">
+                    <label for="targetX">Target X (m): <span id="targetX-val">15</span></label>
+                    <input type="range" id="targetX" min="-30" max="30" step="1" value="15">
+                </div>
+
+                <div class="control-group">
+                    <label for="targetY">Target Y Altitude (m): <span id="targetY-val">10</span></label>
+                    <input type="range" id="targetY" min="5" max="30" step="1" value="10">
+                </div>
+
+                <div class="control-group">
+                    <label for="mass">Drone Mass (kg): <span id="mass-val">1.2</span></label>
+                    <input type="range" id="mass" min="0.5" max="5" step="0.1" value="1.2">
+                </div>
+
+                <button id="run-btn">Run Simulation</button>
+            </div>
+
+            <div class="panel simulation-view">
+                <div class="charts">
+                    <div class="chart-container">
+                        <canvas id="trajectoryChart"></canvas>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="thrustChart"></canvas>
+                    </div>
+                </div>
+                <div class="visualizer">
+                    <div id="target-notice" class="target-notice hidden">Hedef konuma ulaşıldı ✓</div>
+                    <div id="obstacles-container"></div>
+                    <div class="drone-container">
+                        <div class="drone" id="drone">
+                            <div class="propeller left"></div>
+                            <div class="body">
+                                <div class="light" id="drone-light"></div>
+                            </div>
+                            <div class="propeller right"></div>
+                        </div>
+                        <div class="target-point" id="target-point">
+                            <span class="target-label">Target</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script>
+        class PIDController {
+            constructor(kp, ki, kd, dt, integralLimit = 20.0) {
+                this.kp = kp;
+                this.ki = ki;
+                this.kd = kd;
+                this.dt = dt;
+                this.integralLimit = integralLimit;
+
+                this.previousError = 0;
+                this.integral = 0;
+            }
+
+            calculate(setpoint, measuredValue) {
+                let error = setpoint - measuredValue;
+
+                this.integral += error * this.dt;
+                this.integral = Math.max(-this.integralLimit, Math.min(this.integral, this.integralLimit));
+
+                let derivative = (error - this.previousError) / this.dt;
+                let output = (this.kp * error) + (this.ki * this.integral) + (this.kd * derivative);
+
+                this.previousError = error;
+                return output;
+            }
+        }
+
+        class DroneSim {
+            constructor(mass = 1.2, dt = 0.05) {
+                this.mass = mass;
+                this.dt = dt;
+
+                // Y Axis (Altitude)
+                this.altitude = 0.0;
+                this.velocityY = 0.0;
+
+                // X Axis (Horizontal)
+                this.posX = 0.0;
+                this.velocityX = 0.0;
+
+                this.g = 9.81;
+            }
+
+            update(thrustY, thrustX) {
+                // Y Axis Physics
+                let accY = (thrustY / this.mass) - this.g;
+                this.velocityY += accY * this.dt;
+                this.altitude += this.velocityY * this.dt;
+
+                if (this.altitude <= 0) {
+                    this.altitude = 0.0;
+                    if (this.velocityY < 0) this.velocityY = 0.0;
+                }
+
+                // X Axis Physics (assuming thrustX directly pushes left/right horizontally for simplicity)
+                let accX = thrustX / this.mass;
+                this.velocityX += accX * this.dt;
+                this.posX += this.velocityX * this.dt;
+
+                return { x: this.posX, y: this.altitude };
+            }
+        }
+
+        // ----------------------------------------------------
+        // Obstacles Configuration
+        // ----------------------------------------------------
+        const obstacles = [
+            { type: 'point', x: 10, y: 15, radius: 2, strength: 500 },
+            { type: 'point', x: -15, y: 20, radius: 3, strength: 600 },
+            { type: 'line', x1: -10, y1: 10, x2: 15, y2: 10, radius: 1.5, strength: 800 }
+        ];
+
+        // Helper to calculate distance from point (px,py) to line segment (x1,y1)->(x2,y2)
+        function distToSegment(px, py, x1, y1, x2, y2) {
+            const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
+            if (l2 === 0) return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1)); // Line is a point
+            let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+            t = Math.max(0, Math.min(1, t)); // constrain to segment limits
+            const projX = x1 + t * (x2 - x1);
+            const projY = y1 + t * (y2 - y1);
+            return {
+                dist: Math.sqrt((px - projX) * (px - projX) + (py - projY) * (py - projY)),
+                closestX: projX,
+                closestY: projY
+            };
+        }
+
+        // ----------------------------------------------------
+        // Web Audio API for Drone Engine Sound (Pure Fan/Air)
+        // ----------------------------------------------------
+        let audioCtx = null;
+        let noiseBufferSource = null;
+        let gainNode = null;
+        let filter = null;
+        let noiseGain = null;
+
+        // Buzzer elements
+        let buzzerOscillator = null;
+        let buzzerGain = null;
+
+        let isAudioInitialized = false;
+
+        // Virtual fan speed to simulate inertia (RPM ramping up/down)
+        let currentFanSpeed = 0;
+
+        function initAudio() {
+            if (isAudioInitialized) return;
+
+            // Create audio context
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AudioContext();
+
+            // Gain node for master volume
+            gainNode = audioCtx.createGain();
+            gainNode.gain.value = 0; // Start silenced
+
+            // Filter to shape the white noise into a rushing air / fan sound
+            filter = audioCtx.createBiquadFilter();
+            filter.type = 'bandpass'; // Bandpass gives a targeted "whoosh" sound
+            filter.frequency.value = 1500;
+            filter.Q.value = 0.5; // Wide and airy
+
+            // White noise generator (simulates moving air)
+            const bufferSize = audioCtx.sampleRate * 2; // 2 seconds of noise
+            const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const output = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                output[i] = Math.random() * 2 - 1;
+            }
+            noiseBufferSource = audioCtx.createBufferSource();
+            noiseBufferSource.buffer = noiseBuffer;
+            noiseBufferSource.loop = true;
+
+            noiseGain = audioCtx.createGain();
+            noiseGain.gain.value = 0.8; // Give the noise more base intensity
+
+            // Connect everything up: Noise -> Filter -> Gain -> Out
+            noiseBufferSource.connect(noiseGain);
+            noiseGain.connect(filter);
+            filter.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            // Start noise
+            noiseBufferSource.start();
+
+            // --- BUZZER SETUP ---
+            buzzerOscillator = audioCtx.createOscillator();
+            buzzerOscillator.type = 'square'; // Harsh beeping sound
+            buzzerOscillator.frequency.value = 800; // 800 Hz beep
+
+            buzzerGain = audioCtx.createGain();
+            buzzerGain.gain.value = 0; // Start silenced
+
+            buzzerOscillator.connect(buzzerGain);
+            buzzerGain.connect(audioCtx.destination);
+
+            buzzerOscillator.start();
+            // --------------------
+
+            isAudioInitialized = true;
+        }
+
+        function updateEngineSound(totalThrust, hoverThrust) {
+            if (!isAudioInitialized || !audioCtx) return;
+
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            if (totalThrust <= 0.1) {
+                gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+                filter.frequency.setTargetAtTime(500, audioCtx.currentTime, 0.1);
+                currentFanSpeed = 0;
+            } else {
+                const targetRatio = totalThrust / hoverThrust;
+
+                // Simulate Fan Inertia (Spin up / Spin down)
+                // Adjust the multiplier to make it ramp slower or faster
+                // 0.05 is a good value for a noticeable "spin up" delay
+                currentFanSpeed += (targetRatio - currentFanSpeed) * 0.05;
+
+                // Target volume maxed at 0.5 for pure wind, based on the smoothed fan speed
+                const targetVolume = Math.min(0.2 + (currentFanSpeed * 0.2), 0.5);
+
+                // As thrust increases, the "whoosh" gets higher pitched (faster air)
+                const targetFilterFreq = 1000 + (currentFanSpeed * 2500);
+
+                // Apply changes smoothly
+                filter.frequency.setTargetAtTime(Math.min(targetFilterFreq, 8000), audioCtx.currentTime, 0.05);
+                gainNode.gain.setTargetAtTime(targetVolume, audioCtx.currentTime, 0.05);
+            }
+        }
+
+        function updateBuzzerSound(isAvoiding, hasReachedTarget) {
+            if (!isAudioInitialized || !audioCtx || !buzzerGain) return;
+
+            // Play buzzer (beep beep pattern) ONLY when avoiding an obstacle
+            if (isAvoiding && !hasReachedTarget) {
+                // Fast beep: on for 0.1s, off for 0.1s (modulus math on current time)
+                const isBeeping = (Math.floor(audioCtx.currentTime * 5) % 2) === 0;
+                buzzerGain.gain.setTargetAtTime(isBeeping ? 0.2 : 0, audioCtx.currentTime, 0.01);
+            } else {
+                // Stop buzzer
+                buzzerGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+            }
+        }
+
+        // ----------------------------------------------------
+        // Voice Assistant (Text-to-Speech)
+        // ----------------------------------------------------
+        let hasSpokenTargetReached = false;
+
+        function speakTargetReached() {
+            if (hasSpokenTargetReached) return;
+
+            // Check if browser supports speech synthesis
+            if ('speechSynthesis' in window) {
+                const whisper = new SpeechSynthesisUtterance("Hedef konuma ulaşıldı");
+                whisper.lang = 'tr-TR'; // Turkish language
+
+                // Try to find a female Turkish voice
+                const voices = window.speechSynthesis.getVoices();
+                let trVoice = voices.find(voice => voice.lang.includes('tr') && (voice.name.toLowerCase().includes('female') || voice.name.toLowerCase().includes('yca') || voice.name.toLowerCase().includes('zeynep'))); // Microsoft Tolga is male, Yelda/Zeynep/Female are usually female.
+
+                // If specific female not found, just get the first Turkish voice available
+                if (!trVoice) {
+                    trVoice = voices.find(voice => voice.lang.includes('tr'));
+                }
+
+                if (trVoice) {
+                    whisper.voice = trVoice;
+                }
+
+                whisper.rate = 1.0;
+                whisper.pitch = 1.2; // Slightly higher pitch often sounds more feminine if gender neutral voice is used.
+
+                window.speechSynthesis.speak(whisper);
+                hasSpokenTargetReached = true;
+            }
+        }
+
+        function stopEngineSound() {
+            if (!isAudioInitialized) return;
+            gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+            buzzerGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+        }
+
+        // UI Elements
+        const inputs = {
+            kp: document.getElementById('kp'),
+            ki: document.getElementById('ki'),
+            kd: document.getElementById('kd'),
+            targetX: document.getElementById('targetX'),
+            targetY: document.getElementById('targetY'),
+            mass: document.getElementById('mass')
+        };
+
+        const labels = {
+            kp: document.getElementById('kp-val'),
+            ki: document.getElementById('ki-val'),
+            kd: document.getElementById('kd-val'),
+            targetX: document.getElementById('targetX-val'),
+            targetY: document.getElementById('targetY-val'),
+            mass: document.getElementById('mass-val')
+        };
+
+        const droneEl = document.getElementById('drone');
+        const droneLightEl = document.getElementById('drone-light');
+        const targetPointEl = document.getElementById('target-point');
+        const targetNoticeEl = document.getElementById('target-notice');
+        const obstaclesContainerEl = document.getElementById('obstacles-container');
+        const runBtn = document.getElementById('run-btn');
+
+        const visualizerEl = document.querySelector('.visualizer');
+
+        function renderObstacles() {
+            obstaclesContainerEl.innerHTML = ''; // clear existing
+            obstacles.forEach(obs => {
+                const el = document.createElement('div');
+                if (obs.type === 'point') {
+                    el.className = 'obstacle-point';
+                    const percentX = ((obs.x + 40) / 80) * 100; // Map -40..40 to 0..100
+                    const percentY = (obs.y / 35) * 100; // Map 0..35 to 0..100
+
+                    el.style.left = `${percentX}%`;
+                    el.style.bottom = `${percentY}%`;
+
+                    // Width/height as percentage of the container width (approximate aspect ratio)
+                    const radPercent = (obs.radius / 80) * 100 * 2;
+                    el.style.width = `${radPercent}%`;
+                    el.style.paddingTop = `${radPercent}%`;
+                    el.style.height = 0;
+
+                } else if (obs.type === 'line') {
+                    el.className = 'obstacle-line';
+                    const px1 = ((obs.x1 + 40) / 80) * 100;
+                    const py1 = (obs.y1 / 35) * 100;
+                    const px2 = ((obs.x2 + 40) / 80) * 100;
+                    const py2 = (obs.y2 / 35) * 100;
+
+                    el.style.left = `${px1}%`;
+                    el.style.bottom = `${py1}%`;
+
+                    // Calculate length in percentage of container width
+                    // This is an approximation since X and Y scales are different visually
+                    const dx_m = obs.x2 - obs.x1;
+                    const dy_m = obs.y2 - obs.y1;
+                    const length_m = Math.sqrt(dx_m * dx_m + dy_m * dy_m);
+                    const lengthPercent = (length_m / 80) * 100;
+
+                    // Angle visually might be skewed because 80m width != 35m height geometrically in CSS
+                    // but we'll use pure math angle for simplicity, assuming roughly square look
+                    const angle = Math.atan2(dy_m, dx_m) * (180 / Math.PI);
+
+                    el.style.width = `${lengthPercent}%`;
+
+                    // Thickness
+                    const thickPercent = (obs.radius / 35) * 100 * 2;
+                    el.style.height = `${thickPercent}%`;
+
+                    el.style.transform = `rotate(${-angle}deg) translateY(50%)`;
+                }
+                obstaclesContainerEl.appendChild(el);
+            });
+        }
+        renderObstacles();
+
+        // Update labels on input change
+        Object.keys(inputs).forEach(key => {
+            inputs[key].addEventListener('input', (e) => {
+                labels[key].innerText = e.target.value;
+                if (key === 'targetX' || key === 'targetY') {
+                    updateVisualizerTarget(Number(inputs.targetX.value), Number(inputs.targetY.value));
+                }
+            });
+        });
+
+        // Interactive clicking on visualizer
+        function handleVisualizerInteraction(clientX, clientY) {
+            const rect = visualizerEl.getBoundingClientRect();
+            const clickY = clientY - rect.top;
+            const clickX = clientX - rect.left;
+
+            // Convert to percentages
+            const percentFromBottom = 100 - ((clickY / rect.height) * 100);
+            const percentFromLeft = (clickX / rect.width) * 100;
+
+            const MAX_ALT_VISUAL = 35;
+            const MAX_X_VISUAL = 40; // Total width is -40 to 40 (80m span)
+
+            // Calculate new target Y
+            let newTargetY = (percentFromBottom / 100) * MAX_ALT_VISUAL;
+            newTargetY = Math.max(5, Math.min(30, Math.round(newTargetY)));
+
+            // Calculate new target X (-40 to +40 based on center)
+            let newTargetX = ((percentFromLeft / 100) * (MAX_X_VISUAL * 2)) - MAX_X_VISUAL;
+            newTargetX = Math.max(-30, Math.min(30, Math.round(newTargetX)));
+
+            // Update inputs and labels
+            inputs.targetY.value = newTargetY;
+            labels.targetY.innerText = newTargetY;
+            inputs.targetX.value = newTargetX;
+            labels.targetX.innerText = newTargetX;
+
+            // Reset the "target reached" speech flag because we set a new target
+            hasSpokenTargetReached = false;
+
+            // Update visual target dot
+            updateVisualizerTarget(newTargetX, newTargetY);
+
+            // Initialize audio on first user interaction
+            initAudio();
+
+            // Automatically run simulation
+            runSimulation();
+        }
+
+        visualizerEl.addEventListener('click', (e) => {
+            handleVisualizerInteraction(e.clientX, e.clientY);
+        });
+
+        // Add touch support for mobile devices
+        visualizerEl.addEventListener('touchstart', (e) => {
+            // Only prevent default and handle the touch if we tapped exactly on the visualizer 
+            // to allow scrolling elsewhere on the page
+            if (e.target === visualizerEl || visualizerEl.contains(e.target)) {
+                e.preventDefault();
+                if (e.touches.length > 0) {
+                    handleVisualizerInteraction(e.touches[0].clientX, e.touches[0].clientY);
+                }
+            }
+        }, { passive: false });
+
+        // Charts
+        let altChart, thrustChart;
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.font.family = "'Inter', sans-serif";
+
+        function initCharts() {
+            const ctxAlt = document.getElementById('trajectoryChart').getContext('2d');
+            const ctxThrust = document.getElementById('thrustChart').getContext('2d');
+
+            if (altChart) altChart.destroy();
+            if (thrustChart) thrustChart.destroy();
+
+            // Check if the canvases are visible before initializing charts (for mobile layout)
+            if (window.getComputedStyle(document.querySelector('.charts')).display === 'none') {
+                return; // Don't init charts if container is hidden (e.g., on small phones)
+            }
+
+            altChart = new Chart(ctxAlt, {
+                type: 'scatter', // Scatter is better for XY trajectory
+                data: { datasets: [] },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: { legend: { labels: { color: '#f8fafc' } } },
+                    scales: {
+                        x: { title: { display: true, text: 'X Position (m)', color: '#94a3b8' }, suggestedMin: -40, suggestedMax: 40 },
+                        y: { title: { display: true, text: 'Altitude Y (m)', color: '#94a3b8' }, suggestedMin: 0, suggestedMax: 35 }
+                    }
+                }
+            });
+
+            thrustChart = new Chart(ctxThrust, {
+                type: 'line',
+                data: { labels: [], datasets: [] },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: { legend: { labels: { color: '#f8fafc' } } },
+                    scales: {
+                        x: { title: { display: true, text: 'Time (s)', color: '#94a3b8' } },
+                        y: { title: { display: true, text: 'Thrust (N)', color: '#94a3b8' } }
+                    }
+                }
+            });
+        }
+
+        function updateVisualizerTarget(targetX, targetY) {
+            const MAX_ALT_VISUAL = 35; // 35 meters is 100% top
+            const MAX_X_VISUAL = 40;   // +- 40 meters width range
+
+            const percentY = Math.min((targetY / MAX_ALT_VISUAL) * 100, 100);
+            // Map -40 -> 0%, 0 -> 50%, 40 -> 100%
+            const percentX = ((targetX + MAX_X_VISUAL) / (MAX_X_VISUAL * 2)) * 100;
+
+            targetPointEl.style.bottom = `${percentY}%`;
+            targetPointEl.style.left = `${percentX}%`;
+        }
+
+        // Simulation logic
+        let simulationInterval;
+        let globalTime = 0;
+        const dt = 0.05;
+        const mass = Number(inputs.mass.value); // Initial mass
+
+        // Global instances for continuous simulation
+        let drone = new DroneSim(mass, dt);
+        let pidY = new PIDController(Number(inputs.kp.value), Number(inputs.ki.value), Number(inputs.kd.value), dt, 20.0);
+        let pidX = new PIDController(Number(inputs.kp.value) * 0.5, Number(inputs.ki.value) * 0.1, Number(inputs.kd.value) * 0.8, dt, 10.0);
+
+        // Watch for mass changes and update drone mass instantly
+        inputs.mass.addEventListener('change', (e) => {
+            drone.mass = Number(e.target.value);
+        });
+
+        // Watch for PID changes
+        inputs.kp.addEventListener('change', (e) => {
+            pidY.kp = Number(e.target.value);
+            pidX.kp = Number(e.target.value) * 0.5;
+        });
+        inputs.ki.addEventListener('change', (e) => {
+            pidY.ki = Number(e.target.value);
+            pidX.ki = Number(e.target.value) * 0.1;
+        });
+        inputs.kd.addEventListener('change', (e) => {
+            pidY.kd = Number(e.target.value);
+            pidX.kd = Number(e.target.value) * 0.8;
+        });
+
+        function calculateRepulsiveForces(droneX, droneY, targetX, targetY, controlX, controlY) {
+            let finalFx = controlX;
+            let finalFy = controlY;
+            let isAvoiding = false;
+            let minDObj = Infinity;
+
+            // Safety boundaries to prevent extreme mathematical spikes
+            const minD = 0.5;
+
+            for (const obs of obstacles) {
+                let d = 0;
+                let pX = 0;
+                let pY = 0;
+
+                if (obs.type === 'point') {
+                    d = Math.sqrt(Math.pow(droneX - obs.x, 2) + Math.pow(droneY - obs.y, 2));
+                    pX = obs.x;
+                    pY = obs.y;
+                } else if (obs.type === 'line') {
+                    const result = distToSegment(droneX, droneY, obs.x1, obs.y1, obs.x2, obs.y2);
+                    d = result.dist;
+                    pX = result.closestX;
+                    pY = result.closestY;
+                }
+
+                // If within influence radius of an obstacle
+                const safeBuffer = 3;
+                const droneRadius = 2.0; // The drone has a physical width visually!
+
+                const dObj = d - (obs.radius + droneRadius);
+                minDObj = Math.min(minDObj, dObj);
+
+                if (d < obs.radius + droneRadius + safeBuffer) {
+                    isAvoiding = true;
+                    d = Math.max(d, minD); // Clamp to avoid infinity
+
+                    const diffX = droneX - pX;
+                    const diffY = droneY - pY;
+                    const diffMag = Math.sqrt(diffX * diffX + diffY * diffY) || 1;
+
+                    // Normal vector pointing away from obstacle
+                    const nx = diffX / diffMag;
+                    const ny = diffY / diffMag;
+
+                    // 1. BOUNDARY FOLLOWING: Cancel inward PID force
+                    const dot = finalFx * nx + finalFy * ny;
+                    if (dot < 0) {
+                        // If force is pointing into the obstacle, cancel the inward component
+                        finalFx -= dot * nx;
+                        finalFy -= dot * ny;
+                    }
+
+                    // Distance to the boundary of the drone AND obstacle (already calculated as dObj)
+
+                    // 2. EMERGENCY BUMPER: Push outward if physically touching (0.2m)
+                    if (dObj <= 0.2) {
+                        finalFx += nx * 500;
+                        finalFy += ny * 500;
+                        continue;
+                    }
+
+                    // APF Repulsive Formula -> Smooth exponential spring
+                    // Bumper mesafe 0.2 olduğu için, o seviyeye gelene kadar logaritmik olarak kuvvetlenir.
+                    if (dObj < safeBuffer) {
+                        if (dObj < 0) dObj = 0.1; // clamp to prevent NaN logic anomalies
+                        const penetration = safeBuffer - dObj;
+                        // Yüksek çarpan sayesinde çarpmadan önce PID'yi yener
+                        const pushMag = Math.pow(penetration, 2.0) * (obs.strength * 0.015);
+                        finalFx += nx * pushMag;
+                        finalFy += ny * pushMag;
+                    }
+
+                    // 3. VORTEX FORCE: Slide along the wall
+                    // Determine 4 quadrants/regions around the obstacle boundary to prevent dead-center hesitation
+                    const R = obs.radius + safeBuffer;
+                    const regions = [
+                        { x: pX, y: pY + R }, // Top
+                        { x: pX, y: pY - R }, // Bottom
+                        { x: pX - R, y: pY }, // Left
+                        { x: pX + R, y: pY }  // Right
+                    ];
+
+                    // Use Pythagoras to find the region closest to the active TARGET
+                    let closestRegion = regions[0];
+                    let minDistToTarget = Infinity;
+
+                    for (let r of regions) {
+                        const distToTarg = Math.sqrt(Math.pow(targetX - r.x, 2) + Math.pow(targetY - r.y, 2));
+                        if (distToTarg < minDistToTarget) {
+                            minDistToTarget = distToTarg;
+                            closestRegion = r;
+                        }
+                    }
+
+                    // Direction to the best region
+                    const slideDirX = closestRegion.x - droneX;
+                    const slideDirY = closestRegion.y - droneY;
+
+                    // Pick the tangent direction (CW or CCW) that points most directly to the closest region
+                    // We project the vector towards the best region onto our two possible tangency paths
+                    const t1x = ny;
+                    const t1y = -nx;
+                    const dotTangent = (slideDirX * t1x) + (slideDirY * t1y);
+                    const sign = dotTangent >= 0 ? 1 : -1;
+
+                    const tangentX = sign * ny;
+                    const tangentY = sign * -nx;
+
+                    // Eğer öne gidiş engellenmişse sağa / sola kaymayı hızlandır
+                    let slideMag = 5.0; // Noktasal engellerin etrafından kayıp geçebilmesi için taban değer
+                    if (dot < 0) {
+                        slideMag += (-dot * 0.8); // Kapatılan itki enerjisinin 80%'ini yatay kaymaya ver
+                    }
+
+                    finalFx += tangentX * slideMag;
+                    finalFy += tangentY * slideMag;
+                }
+            }
+
+            return { fx: finalFx, fy: finalFy, isAvoiding: isAvoiding, minDistanceToObstacle: minDObj };
+        }
+
+        function runSimulation() {
+            // Initialize audio if not already done (in case they clicked 'Run' instead of the visualizer)
+            initAudio();
+
+            if (simulationInterval) clearInterval(simulationInterval);
+
+            // Get values
+            const targetX = Number(inputs.targetX.value);
+            const targetY = Number(inputs.targetY.value);
+
+            // We NO LONGER reset drone to 0,0 here. We capture the starting visual state if we need to.
+            droneEl.style.transition = 'none';
+
+            setTimeout(() => {
+                droneEl.style.transition = 'bottom 0.05s linear, left 0.05s linear, transform 0.05s linear';
+
+                const MAX_TOTAL_TIME = 120; // Uzun kavisler için maksimum 120 saniye sınır
+                const maxSteps = Math.floor(MAX_TOTAL_TIME / dt);
+
+                const hoverThrust = drone.mass * drone.g;
+
+                const times = [];
+                const trajectory = [];
+                const targetPoint = { x: targetX, y: targetY };
+                const thrustsY = [];
+                const thrustsX = [];
+
+                // Setup initial stuck detection variables
+                let anchorDist = Math.hypot(drone.posX - targetX, drone.altitude - targetY);
+                let anchorTime = 0;
+                let isEscaping = false;
+
+                // Pre-calculate full simulation sequence from current state
+                // We clone the state so we can pre-calculate for charts, but then we actually apply it in real time
+
+                // Save current actual state
+                let tempState = {
+                    alt: drone.altitude,
+                    velY: drone.velocityY,
+                    posX: drone.posX,
+                    velX: drone.velocityX,
+                    pidY_int: pidY.integral,
+                    pidY_prevErr: pidY.previousError,
+                    pidX_int: pidX.integral,
+                    pidX_prevErr: pidX.previousError,
+                    anchorDist: anchorDist,
+                    anchorTime: anchorTime,
+                    isEscaping: isEscaping
+                };
+
+                for (let i = 0; i < maxSteps; i++) {
+                    let t = globalTime + (i * dt);
+
+                    // STUCK DETECTION LOGIC: Hata payı 1m'den az değişiyorsa
+                    let currentDist = Math.sqrt(Math.pow(drone.posX - targetX, 2) + Math.pow(drone.altitude - targetY, 2));
+
+                    if (!isEscaping) {
+                        if (Math.abs(currentDist - anchorDist) > 1.0) { // Daha hassas durgunluk tespiti
+                            anchorDist = currentDist;
+                            anchorTime = 0;
+                        } else {
+                            anchorTime += dt;
+                        }
+                        if (anchorTime >= 3.0 && currentDist > 5.0) { // Yeşil ışık yanmıyorsa (5m dışındaysa) kaç
+                            isEscaping = true;
+                        }
+                    }
+
+                    // Virtual Waypoint: Kaçış planı aktifse geçici bir hedef yarat (Hedefin konumuna göre çapraz kaçış)
+                    let activeTargetX = targetX;
+                    let activeTargetY = targetY;
+                    if (isEscaping) {
+                        activeTargetX = drone.posX + 30.0; // Her halükarda X ekseninde +X yönüne kaç
+                        if (drone.altitude > targetY) {
+                            activeTargetY = Math.max(5.0, drone.altitude - 20.0); // Drone yukarıdaysa -Y (aşağı) çapraz git
+                        } else {
+                            activeTargetY = drone.altitude + 20.0; // Drone aşağıdaysa +Y (yukarı) çapraz git
+                        }
+                    }
+
+                    // PID kontrolcüsü 'activeTarget'a göre hesaplama yapar
+                    let controlY = pidY.calculate(activeTargetY, drone.altitude);
+                    let controlX = pidX.calculate(activeTargetX, drone.posX);
+
+                    // --- Obstacle Avoidance (APF) ---
+                    // APF'yi de activeTarget ile besliyoruz ki, Pisagor yönelimleri o sanal hedefe asılsın
+                    let repulsor = calculateRepulsiveForces(drone.posX, drone.altitude, activeTargetX, activeTargetY, controlX, controlY);
+                    controlX = repulsor.fx;
+                    controlY = repulsor.fy;
+                    let isAvoiding = repulsor.isAvoiding;
+                    // --------------------------------
+
+                    if (isEscaping && repulsor.minDistanceToObstacle > 5.0) {
+                        isEscaping = false;
+                        anchorTime = 0;
+                        anchorDist = currentDist;
+                    }
+
+                    let rawThrustY = hoverThrust + controlY;
+                    let appliedThrustY = Math.max(0, Math.min(rawThrustY, hoverThrust * 2.5));
+
+                    // Yanal hızı %35'e düşürerek daha yavaş ve sükunetli (dalgasız) uçuş
+                    let maxSideThrust = hoverThrust * 0.35;
+                    let appliedThrustX = Math.max(-maxSideThrust, Math.min(controlX, maxSideThrust));
+
+                    let pos = drone.update(appliedThrustY, appliedThrustX);
+
+                    times.push(t.toFixed(2));
+                    trajectory.push({ x: pos.x, y: pos.y });
+                    thrustsY.push(appliedThrustY);
+                    thrustsX.push(appliedThrustX);
+
+                    // Simülasyonu bitirme koşulları:
+                    // 1. Hedefe tam ulaştıysa (<= 1.0m)
+                    // 2. Hedef bölgesinde (Yeşil Işık < 5.0m) 5 sn boyunca dalgalanıp durulduysa
+                    const distToTarget = Math.sqrt(Math.pow(pos.x - targetX, 2) + Math.pow(pos.y - targetY, 2));
+                    if (distToTarget <= 1.0 || (distToTarget <= 5.0 && anchorTime >= 5.0)) {
+                        break;
+                    }
+                }
+
+                const steps = times.length; // Gerçekte hesaplanan ve oynatılacak animasyon frame sayısı
+
+                // Restore actual state for the real-time playback
+                drone.altitude = tempState.alt;
+                drone.velocityY = tempState.velY;
+                drone.posX = tempState.posX;
+                drone.velocityX = tempState.velX;
+                pidY.integral = tempState.pidY_int;
+                pidY.previousError = tempState.pidY_prevErr;
+                pidX.integral = tempState.pidX_int;
+                pidX.previousError = tempState.pidX_prevErr;
+                anchorDist = tempState.anchorDist;
+                anchorTime = tempState.anchorTime;
+                isEscaping = tempState.isEscaping;
+
+                // Update Charts
+                initCharts();
+
+                if (altChart) {
+                    altChart.data.datasets = [
+                        { label: 'Trajectory', data: trajectory, borderColor: '#38bdf8', backgroundColor: '#38bdf8', showLine: true, borderWidth: 2, pointRadius: 0, tension: 0.1 },
+                        { label: 'Target', data: [targetPoint], borderColor: '#ef4444', backgroundColor: '#ef4444', pointRadius: 6, pointStyle: 'circle' }
+                    ];
+                    altChart.update();
+                }
+
+                if (thrustChart) {
+                    thrustChart.data.labels = times;
+                    thrustChart.data.datasets = [
+                        { label: 'Y Thrust (Lift)', data: thrustsY, borderColor: '#f59e0b', borderWidth: 2, pointRadius: 0, tension: 0.1 },
+                        { label: 'X Thrust (Side)', data: thrustsX, borderColor: '#a855f7', borderWidth: 2, pointRadius: 0, tension: 0.1 },
+                        { label: 'Hover Thrust', data: Array(steps).fill(hoverThrust), borderColor: '#10b981', borderWidth: 2, borderDash: [5, 5], pointRadius: 0 }
+                    ];
+                    thrustChart.update();
+                }
+
+                // Playback visualizer animation
+                const MAX_ALT_VISUAL = 35;
+                const MAX_X_VISUAL = 40;
+                let frame = 0;
+
+                simulationInterval = setInterval(() => {
+                    if (frame >= steps) {
+                        clearInterval(simulationInterval);
+                        droneEl.style.transform = `translate(-50%, 0) rotate(0deg)`; // Reset rotation at end
+                        stopEngineSound(); // Fade out engine sound when done
+
+                        // If we reach the end of the simulation timeframe, keep the light blinking green if settled at target
+                        const finalDist = Math.sqrt(Math.pow(drone.posX - targetX, 2) + Math.pow(drone.altitude - targetY, 2));
+                        if (finalDist < 5.0 && finalDist >= 0.5) droneLightEl.classList.add('blinking-green');
+                        else if (finalDist < 0.5) {
+                            droneLightEl.style.background = '#10b981';
+                            droneLightEl.style.boxShadow = '0 0 10px #10b981';
+                        }
+
+                        return;
+                    }
+
+                    // REAL-TIME UPDATE of actual objects (so if user clicks mid-flight, it's correct)
+
+                    // STUCK DETECTION LOGIC: Hata payı 1m'den az değişiyorsa
+                    let currentDist = Math.sqrt(Math.pow(drone.posX - targetX, 2) + Math.pow(drone.altitude - targetY, 2));
+                    if (!isEscaping) {
+                        if (Math.abs(currentDist - anchorDist) > 1.0) { // Daha hassas durgunluk tespiti
+                            anchorDist = currentDist;
+                            anchorTime = 0;
+                        } else {
+                            anchorTime += dt;
+                        }
+
+                        if (anchorTime >= 3.0 && currentDist > 5.0) { // Yeşil ışık yanmıyorsa kaçışa başla
+                            isEscaping = true;
+                        }
+                    }
+
+                    // Virtual Waypoint: Kaçış planı aktifse geçici bir hedef yarat (Hedefin konumuna göre çapraz kaçış)
+                    let activeTargetX = targetX;
+                    let activeTargetY = targetY;
+                    if (isEscaping) {
+                        activeTargetX = drone.posX + 30.0; // Her halükarda X ekseninde +X yönüne kaç
+                        if (drone.altitude > targetY) {
+                            activeTargetY = Math.max(5.0, drone.altitude - 20.0); // Drone yukarıdaysa -Y (aşağı) çapraz git
+                        } else {
+                            activeTargetY = drone.altitude + 20.0; // Drone aşağıdaysa +Y (yukarı) çapraz git
+                        }
+                    }
+
+                    let controlY = pidY.calculate(activeTargetY, drone.altitude);
+                    let controlX = pidX.calculate(activeTargetX, drone.posX);
+
+                    // --- Obstacle Avoidance (APF) ---
+                    let repulsor = calculateRepulsiveForces(drone.posX, drone.altitude, activeTargetX, activeTargetY, controlX, controlY);
+                    controlX = repulsor.fx;
+                    controlY = repulsor.fy;
+                    let isAvoiding = repulsor.isAvoiding;
+                    // --------------------------------
+
+                    if (isEscaping && repulsor.minDistanceToObstacle > 5.0) {
+                        isEscaping = false;
+                        anchorTime = 0;
+                        anchorDist = currentDist;
+                    }
+
+                    let appliedThrustY = Math.max(0, Math.min(hoverThrust + controlY, hoverThrust * 2.5));
+                    let maxSideThrust = hoverThrust * 0.35;
+                    let appliedThrustX = Math.max(-maxSideThrust, Math.min(controlX, maxSideThrust));
+                    let pos = drone.update(appliedThrustY, appliedThrustX);
+                    globalTime += dt;
+
+                    // Calculate total thrust vector magnitude for sound
+                    let totalThrust = Math.sqrt((appliedThrustY * appliedThrustY) + (appliedThrustX * appliedThrustX));
+                    updateEngineSound(totalThrust, hoverThrust);
+
+                    // Check distances
+                    const dist = Math.sqrt(Math.pow(pos.x - targetX, 2) + Math.pow(pos.y - targetY, 2));
+                    const speed = Math.sqrt(Math.pow(drone.velocityX, 2) + Math.pow(drone.velocityY, 2));
+                    const targetReached = (dist < 0.5 && speed < 0.5);
+
+                    // Update Buzzer Sound (Plays if avoiding obstacle)
+                    updateBuzzerSound(isAvoiding, targetReached);
+
+                    // Light Display Logic
+                    droneLightEl.classList.remove('blinking-red', 'blinking-green');
+                    droneLightEl.style.background = ''; // reset to default css
+                    droneLightEl.style.boxShadow = '';
+
+                    if (targetReached) {
+                        // If completely reached, light stays solid green
+                        droneLightEl.style.background = '#10b981';
+                        droneLightEl.style.boxShadow = '0 0 10px #10b981';
+                    } else if (isAvoiding) {
+                        // Proximity Warning Light (Blink Red if avoiding obstacle)
+                        droneLightEl.classList.add('blinking-red');
+                    } else if (dist < 5.0) {
+                        // Approach Indicator (Blink Green if within 5 meters of target)
+                        droneLightEl.classList.add('blinking-green');
+                    }
+
+                    // Notification Badge (Shows at target)
+                    if (targetReached) {
+                        targetNoticeEl.classList.remove('hidden');
+                    } else {
+                        targetNoticeEl.classList.add('hidden');
+                    }
+
+                    // Voice Check (Speaks when within 1.0m constraint)
+                    if (dist < 1.0) {
+                        speakTargetReached();
+                    }
+
+                    const thrustX = appliedThrustX;
+
+                    const percentY = Math.max(0, Math.min((pos.y / MAX_ALT_VISUAL) * 100, 100));
+                    const percentX = Math.max(0, Math.min(((pos.x + MAX_X_VISUAL) / (MAX_X_VISUAL * 2)) * 100, 100));
+
+                    // Calculate a fake visual drone tilt based on X thrust
+                    const tiltAngle = (thrustX / hoverThrust) * 30; // Max 30 degree tilt
+
+                    droneEl.style.bottom = `${percentY}%`;
+                    droneEl.style.left = `${percentX}%`;
+                    droneEl.style.transform = `translate(-50%, 0) rotate(${tiltAngle}deg)`;
+
+                    frame++;
+                }, dt * 1000); // playback at real speed
+            }, 50);
+        }
+
+        runBtn.addEventListener('click', runSimulation);
+
+        // Initial setup
+        initCharts();
+        updateVisualizerTarget(Number(inputs.targetX.value), Number(inputs.targetY.value));
+    </script>
+</body>
+
+</html>
