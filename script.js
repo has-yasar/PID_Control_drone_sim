@@ -66,7 +66,7 @@ class DroneSim {
 const obstacles = [
     { type: 'point', x: 10, y: 15, radius: 2, strength: 500 },
     { type: 'point', x: -15, y: 20, radius: 3, strength: 600 },
-    { type: 'line', x1: -10, y1: 10, x2: 15, y2: 10, radius: 1.5, strength: 800 }
+    { type: 'line', x1: -10, y1: 18, x2: 15, y2: 18, radius: 1.5, strength: 800 }
 ];
 
 // Helper to calculate distance from point (px,py) to line segment (x1,y1)->(x2,y2)
@@ -292,32 +292,28 @@ function renderObstacles() {
 
         } else if (obs.type === 'line') {
             el.className = 'obstacle-line';
-            const px1 = ((obs.x1 + 40) / 80) * 100;
-            const py1 = (obs.y1 / 35) * 100;
-            const px2 = ((obs.x2 + 40) / 80) * 100;
-            const py2 = (obs.y2 / 35) * 100;
+            const cx = (obs.x1 + obs.x2) / 2;
+            const cy = (obs.y1 + obs.y2) / 2;
+            const pCx = ((cx + 40) / 80) * 100;
+            const pCy = (cy / 35) * 100;
 
-            el.style.left = `${px1}%`;
-            el.style.bottom = `${py1}%`;
+            el.style.left = `${pCx}%`;
+            el.style.bottom = `${pCy}%`;
 
-            // Calculate length in percentage of container width
-            // This is an approximation since X and Y scales are different visually
             const dx_m = obs.x2 - obs.x1;
             const dy_m = obs.y2 - obs.y1;
             const length_m = Math.sqrt(dx_m * dx_m + dy_m * dy_m);
             const lengthPercent = (length_m / 80) * 100;
 
-            // Angle visually might be skewed because 80m width != 35m height geometrically in CSS
-            // but we'll use pure math angle for simplicity, assuming roughly square look
             const angle = Math.atan2(dy_m, dx_m) * (180 / Math.PI);
 
             el.style.width = `${lengthPercent}%`;
 
-            // Thickness
-            const thickPercent = (obs.radius / 35) * 100 * 2;
+            const thickPercent = (obs.radius * 2 / 35) * 100;
             el.style.height = `${thickPercent}%`;
 
-            el.style.transform = `rotate(${-angle}deg) translateY(50%)`;
+            el.style.transform = `translate(-50%, 50%) rotate(${-angle}deg)`;
+            el.style.transformOrigin = `center`;
         }
         obstaclesContainerEl.appendChild(el);
     });
@@ -336,7 +332,8 @@ Object.keys(inputs).forEach(key => {
 
 // Interactive clicking on visualizer
 function handleVisualizerInteraction(clientX, clientY) {
-    const rect = visualizerEl.getBoundingClientRect();
+    const arenaEl = document.getElementById('arena');
+    const rect = arenaEl.getBoundingClientRect();
     const clickY = clientY - rect.top;
     const clickX = clientX - rect.left;
 
@@ -471,7 +468,7 @@ inputs.kd.addEventListener('change', (e) => {
     pidX.kd = Number(e.target.value) * 0.8;
 });
 
-function calculateRepulsiveForces(droneX, droneY, targetX, targetY, controlX, controlY) {
+function calculateRepulsiveForces(droneX, droneY, velX, velY, targetX, targetY, controlX, controlY) {
     let finalFx = controlX;
     let finalFy = controlY;
     let isAvoiding = false;
@@ -497,15 +494,14 @@ function calculateRepulsiveForces(droneX, droneY, targetX, targetY, controlX, co
         }
 
         // If within influence radius of an obstacle
-        const safeBuffer = 3;
+        const safeBuffer = 5.0; // Increased buffer for stability
         const droneRadius = 2.0; // The drone has a physical width visually!
 
         const dObj = d - (obs.radius + droneRadius);
         minDObj = Math.min(minDObj, dObj);
 
-        if (d < obs.radius + droneRadius + safeBuffer) {
+        if (dObj < safeBuffer) {
             isAvoiding = true;
-            d = Math.max(d, minD); // Clamp to avoid infinity
 
             const diffX = droneX - pX;
             const diffY = droneY - pY;
@@ -515,6 +511,9 @@ function calculateRepulsiveForces(droneX, droneY, targetX, targetY, controlX, co
             const nx = diffX / diffMag;
             const ny = diffY / diffMag;
 
+            // Velocity towards the obstacle (Positive = colliding, Negative = moving away)
+            const velTowards = -(velX * nx + velY * ny);
+
             // 1. BOUNDARY FOLLOWING: Cancel inward PID force
             const dot = finalFx * nx + finalFy * ny;
             if (dot < 0) {
@@ -523,22 +522,25 @@ function calculateRepulsiveForces(droneX, droneY, targetX, targetY, controlX, co
                 finalFy -= dot * ny;
             }
 
-            // Distance to the boundary of the drone AND obstacle (already calculated as dObj)
-
             // 2. EMERGENCY BUMPER: Push outward if physically touching (0.2m)
             if (dObj <= 0.2) {
-                finalFx += nx * 500;
-                finalFy += ny * 500;
+                finalFx += nx * 200;
+                finalFy += ny * 200;
                 continue;
             }
 
             // APF Repulsive Formula -> Smooth exponential spring
-            // Bumper mesafe 0.2 olduğu için, o seviyeye gelene kadar logaritmik olarak kuvvetlenir.
             if (dObj < safeBuffer) {
                 if (dObj < 0) dObj = 0.1; // clamp to prevent NaN logic anomalies
                 const penetration = safeBuffer - dObj;
-                // Yüksek çarpan sayesinde çarpmadan önce PID'yi yener
-                const pushMag = Math.pow(penetration, 2.0) * (obs.strength * 0.015);
+
+                let pushMag = Math.pow(penetration, 2.0) * (obs.strength * 0.02);
+
+                // Dynamic Damping (Braking stabilization)
+                if (velTowards > 0) {
+                    pushMag += velTowards * (obs.strength * 0.05);
+                }
+
                 finalFx += nx * pushMag;
                 finalFy += ny * pushMag;
             }
@@ -677,26 +679,30 @@ function runSimulation() {
             let controlY = pidY.calculate(activeTargetY, drone.altitude);
             let controlX = pidX.calculate(activeTargetX, drone.posX);
 
+            let maxSideThrustNormal = hoverThrust * 0.35;
+            controlX = Math.max(-maxSideThrustNormal, Math.min(controlX, maxSideThrustNormal));
+            let maxLiftNormal = hoverThrust * 1.5;
+            controlY = Math.max(-hoverThrust, Math.min(controlY, maxLiftNormal - hoverThrust));
+
             // --- Obstacle Avoidance (APF) ---
-            // APF'yi de activeTarget ile besliyoruz ki, Pisagor yönelimleri o sanal hedefe asılsın
-            let repulsor = calculateRepulsiveForces(drone.posX, drone.altitude, activeTargetX, activeTargetY, controlX, controlY);
-            controlX = repulsor.fx;
-            controlY = repulsor.fy;
+            let repulsor = calculateRepulsiveForces(drone.posX, drone.altitude, drone.velocityX, drone.velocityY, activeTargetX, activeTargetY, controlX, controlY);
+
+            let finalControlX = repulsor.fx;
+            let finalControlY = repulsor.fy;
             let isAvoiding = repulsor.isAvoiding;
             // --------------------------------
 
-            if (isEscaping && repulsor.minDistanceToObstacle > 5.0) {
+            if (isEscaping && (repulsor.minDistanceToObstacle > 5.0 || currentDist <= 5.0)) {
                 isEscaping = false;
                 anchorTime = 0;
                 anchorDist = currentDist;
             }
 
-            let rawThrustY = hoverThrust + controlY;
-            let appliedThrustY = Math.max(0, Math.min(rawThrustY, hoverThrust * 2.5));
+            let rawThrustY = hoverThrust + finalControlY;
+            let appliedThrustY = Math.max(0, Math.min(rawThrustY, hoverThrust * 2.5)); // Hard physical limit Y
 
-            // Yanal hızı %35'e düşürerek daha yavaş ve sükunetli (dalgasız) uçuş
-            let maxSideThrust = hoverThrust * 0.35;
-            let appliedThrustX = Math.max(-maxSideThrust, Math.min(controlX, maxSideThrust));
+            let maxSideThrust = isAvoiding ? hoverThrust * 1.5 : maxSideThrustNormal;
+            let appliedThrustX = Math.max(-maxSideThrust, Math.min(finalControlX, maxSideThrust));
 
             let pos = drone.update(appliedThrustY, appliedThrustX);
 
@@ -800,22 +806,30 @@ function runSimulation() {
             let controlY = pidY.calculate(activeTargetY, drone.altitude);
             let controlX = pidX.calculate(activeTargetX, drone.posX);
 
+            let maxSideThrustNormal = hoverThrust * 0.35;
+            controlX = Math.max(-maxSideThrustNormal, Math.min(controlX, maxSideThrustNormal));
+            let maxLiftNormal = hoverThrust * 1.5;
+            controlY = Math.max(-hoverThrust, Math.min(controlY, maxLiftNormal - hoverThrust));
+
             // --- Obstacle Avoidance (APF) ---
-            let repulsor = calculateRepulsiveForces(drone.posX, drone.altitude, activeTargetX, activeTargetY, controlX, controlY);
-            controlX = repulsor.fx;
-            controlY = repulsor.fy;
+            let repulsor = calculateRepulsiveForces(drone.posX, drone.altitude, drone.velocityX, drone.velocityY, activeTargetX, activeTargetY, controlX, controlY);
+
+            let finalControlX = repulsor.fx;
+            let finalControlY = repulsor.fy;
             let isAvoiding = repulsor.isAvoiding;
             // --------------------------------
 
-            if (isEscaping && repulsor.minDistanceToObstacle > 5.0) {
+            if (isEscaping && (repulsor.minDistanceToObstacle > 5.0 || currentDist <= 5.0)) {
                 isEscaping = false;
                 anchorTime = 0;
                 anchorDist = currentDist;
             }
 
-            let appliedThrustY = Math.max(0, Math.min(hoverThrust + controlY, hoverThrust * 2.5));
-            let maxSideThrust = hoverThrust * 0.35;
-            let appliedThrustX = Math.max(-maxSideThrust, Math.min(controlX, maxSideThrust));
+            let rawThrustY = hoverThrust + finalControlY;
+            let appliedThrustY = Math.max(0, Math.min(rawThrustY, hoverThrust * 2.5)); // Hard physical limit Y
+
+            let maxSideThrust = isAvoiding ? hoverThrust * 1.5 : maxSideThrustNormal;
+            let appliedThrustX = Math.max(-maxSideThrust, Math.min(finalControlX, maxSideThrust));
             let pos = drone.update(appliedThrustY, appliedThrustX);
             globalTime += dt;
 
