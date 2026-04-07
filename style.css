@@ -102,7 +102,7 @@ main {
 input[type=range] {
     -webkit-appearance: none;
     width: 100%;
-    background: rgba(255,255,255,0.1);
+    background: rgba(255, 255, 255, 0.1);
     height: 6px;
     border-radius: 4px;
     outline: none;
@@ -157,7 +157,7 @@ button:active {
 
 .chart-container {
     flex: 1;
-    background: rgba(0,0,0,0.2);
+    background: rgba(0, 0, 0, 0.2);
     border-radius: 12px;
     padding: 10px;
     position: relative;
@@ -171,7 +171,8 @@ button:active {
     position: relative;
     overflow: hidden;
     border: 1px solid var(--glass-border);
-    cursor: pointer; /* Added cursor pointer for interactability */
+    cursor: pointer;
+    /* Added cursor pointer for interactability */
 }
 
 /* Target Reached Notification */
@@ -180,7 +181,8 @@ button:active {
     top: 20px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(16, 185, 129, 0.9); /* Emerald Green */
+    background: rgba(16, 185, 129, 0.9);
+    /* Emerald Green */
     color: white;
     padding: 8px 16px;
     border-radius: 20px;
@@ -205,34 +207,34 @@ button:active {
     left: 0;
     width: 100%;
     height: 100%;
-    pointer-events: none; /* Let clicks pass through to the visualizer */
+    pointer-events: none;
+    /* Let clicks pass through to the visualizer */
     z-index: 5;
 }
 
 .obstacle-point {
     position: absolute;
-    background: repeating-linear-gradient(
-        45deg,
-        rgba(239, 68, 68, 0.2),
-        rgba(239, 68, 68, 0.2) 10px,
-        rgba(255, 255, 255, 0.1) 10px,
-        rgba(255, 255, 255, 0.1) 20px
-    );
-    border: 2px solid #ef4444; /* Red border */
+    background: repeating-linear-gradient(45deg,
+            rgba(239, 68, 68, 0.2),
+            rgba(239, 68, 68, 0.2) 10px,
+            rgba(255, 255, 255, 0.1) 10px,
+            rgba(255, 255, 255, 0.1) 20px);
+    border: 2px solid #ef4444;
+    /* Red border */
     border-radius: 50%;
     box-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
-    transform: translate(-50%, 50%); /* Centered around its coordinates (bottom left origin) */
+    transform: translate(-50%, 50%);
+    /* Centered around its coordinates (bottom left origin) */
 }
 
 .obstacle-line {
     position: absolute;
-    background: repeating-linear-gradient(
-        45deg,
-        rgba(249, 115, 22, 0.2), /* Orange border */
-        rgba(249, 115, 22, 0.2) 10px,
-        rgba(255, 255, 255, 0.1) 10px,
-        rgba(255, 255, 255, 0.1) 20px
-    );
+    background: repeating-linear-gradient(45deg,
+            rgba(249, 115, 22, 0.2),
+            /* Orange border */
+            rgba(249, 115, 22, 0.2) 10px,
+            rgba(255, 255, 255, 0.1) 10px,
+            rgba(255, 255, 255, 0.1) 20px);
     border: 2px solid #f97316;
     border-radius: 4px;
     box-shadow: 0 0 15px rgba(249, 115, 22, 0.5);
@@ -245,8 +247,10 @@ button:active {
     height: 12px;
     border-radius: 50%;
     background: var(--target-color);
-    bottom: 30%; /* Will be updated via JS */
-    left: 50%; /* Will be updated via JS */
+    bottom: 30%;
+    /* Will be updated via JS */
+    left: 50%;
+    /* Will be updated via JS */
     transform: translate(-50%, 50%);
     box-shadow: 0 0 10px var(--target-color), 0 0 20px var(--target-color);
     z-index: 1;
@@ -260,13 +264,15 @@ button:active {
     color: var(--target-color);
     font-size: 0.8rem;
     font-weight: bold;
-    text-shadow: 0 0 5px rgba(0,0,0,0.8);
+    text-shadow: 0 0 5px rgba(0, 0, 0, 0.8);
 }
 
 .drone {
     position: absolute;
-    bottom: 0; /* Will be updated via JS */
-    left: 50%; /* Center is 50% */
+    bottom: 0;
+    /* Will be updated via JS */
+    left: 50%;
+    /* Center is 50% */
     transform: translateX(-50%);
     width: 80px;
     height: 24px;
@@ -283,7 +289,8 @@ button:active {
     background: var(--accent);
     border-radius: 6px;
     box-shadow: 0 0 15px var(--accent-glow);
-    position: relative; /* So the light can be positioned inside */
+    position: relative;
+    /* So the light can be positioned inside */
     display: flex;
     justify-content: center;
     align-items: center;
@@ -293,31 +300,50 @@ button:active {
 .light {
     width: 6px;
     height: 6px;
-    background: #475569; /* Dark off state */
+    background: #475569;
+    /* Dark off state */
     border-radius: 50%;
     transition: background 0.2s;
 }
 
 .light.blinking-red {
-    background: #ef4444; /* Bright red */
+    background: #ef4444;
+    /* Bright red */
     box-shadow: 0 0 10px #ef4444;
-    animation: blinkLightRed 0.3s alternate infinite; /* Fast pulse */
+    animation: blinkLightRed 0.3s alternate infinite;
+    /* Fast pulse */
 }
 
 @keyframes blinkLightRed {
-    0% { opacity: 0.3; box-shadow: 0 0 2px #ef4444; }
-    100% { opacity: 1; box-shadow: 0 0 15px #ef4444, 0 0 5px #ef4444; }
+    0% {
+        opacity: 0.3;
+        box-shadow: 0 0 2px #ef4444;
+    }
+
+    100% {
+        opacity: 1;
+        box-shadow: 0 0 15px #ef4444, 0 0 5px #ef4444;
+    }
 }
 
 .light.blinking-green {
-    background: #10b981; /* Bright green */
+    background: #10b981;
+    /* Bright green */
     box-shadow: 0 0 10px #10b981;
-    animation: blinkLightGreen 0.3s alternate infinite; /* Fast pulse */
+    animation: blinkLightGreen 0.3s alternate infinite;
+    /* Fast pulse */
 }
 
 @keyframes blinkLightGreen {
-    0% { opacity: 0.3; box-shadow: 0 0 2px #10b981; }
-    100% { opacity: 1; box-shadow: 0 0 15px #10b981, 0 0 5px #10b981; }
+    0% {
+        opacity: 0.3;
+        box-shadow: 0 0 2px #10b981;
+    }
+
+    100% {
+        opacity: 1;
+        box-shadow: 0 0 15px #10b981, 0 0 5px #10b981;
+    }
 }
 
 .propeller {
@@ -326,11 +352,19 @@ button:active {
     background: #cbd5e1;
     border-radius: 2px;
     animation: spin 0.05s linear infinite;
-    box-shadow: 0 0 5px rgba(255,255,255,0.5);
+    box-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
 }
 
 @keyframes spin {
-    0% { transform: scaleX(1); }
-    50% { transform: scaleX(0.1); }
-    100% { transform: scaleX(1); }
+    0% {
+        transform: scaleX(1);
+    }
+
+    50% {
+        transform: scaleX(0.1);
+    }
+
+    100% {
+        transform: scaleX(1);
+    }
 }

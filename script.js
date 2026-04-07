@@ -44,6 +44,8 @@ class DroneSim {
         // Y Axis Physics
         let accY = (thrustY / this.mass) - this.g;
         this.velocityY += accY * this.dt;
+        // Hafif hava direnci (Y ekseninde salınımı bastırmak için)
+        this.velocityY *= 0.995;
         this.altitude += this.velocityY * this.dt;
 
         if (this.altitude <= 0) {
@@ -51,9 +53,10 @@ class DroneSim {
             if (this.velocityY < 0) this.velocityY = 0.0;
         }
 
-        // X Axis Physics (assuming thrustX directly pushes left/right horizontally for simplicity)
+        // X Axis Physics — gerçekçi hava direnci ile yatay sönümleme
         let accX = thrustX / this.mass;
         this.velocityX += accX * this.dt;
+        this.velocityX *= 0.98; // Yatay sürükleme: yalpalamayi önler
         this.posX += this.velocityX * this.dt;
 
         return { x: this.posX, y: this.altitude };
@@ -531,8 +534,8 @@ function calculateRepulsiveForces(droneX, droneY, velX, velY, targetX, targetY, 
 
             // APF Repulsive Formula -> Smooth exponential spring
             if (dObj < safeBuffer) {
-                if (dObj < 0) dObj = 0.1; // clamp to prevent NaN logic anomalies
-                const penetration = safeBuffer - dObj;
+                const dObjClamped = Math.max(dObj, 0.1); // clamp to prevent NaN (dObj is const, use separate var)
+                const penetration = safeBuffer - dObjClamped;
 
                 let pushMag = Math.pow(penetration, 2.0) * (obs.strength * 0.02);
 
@@ -605,6 +608,10 @@ function runSimulation() {
     const targetX = Number(inputs.targetX.value);
     const targetY = Number(inputs.targetY.value);
 
+    // Hedefe olan hata aniden değişince türev spike oluşur — previousError'u sıfırla
+    pidY.previousError = 0;
+    pidX.previousError = 0;
+
     // We NO LONGER reset drone to 0,0 here. We capture the starting visual state if we need to.
     droneEl.style.transition = 'none';
 
@@ -626,11 +633,17 @@ function runSimulation() {
         let anchorDist = Math.hypot(drone.posX - targetX, drone.altitude - targetY);
         let anchorTime = 0;
         let isEscaping = false;
+        let escapeTime = 0;          // How long we have been escaping
+        const MAX_ESCAPE_DURATION = 6.0; // Max escape duration in seconds
+        let escapeCooldown = 0;      // Cooldown after escape ends (prevent re-trigger)
+        const ESCAPE_COOLDOWN_DURATION = 2.0;
+        let escapeTargetX = 0;       // Calculated escape waypoint
+        let escapeTargetY = 0;
 
         // Pre-calculate full simulation sequence from current state
         // We clone the state so we can pre-calculate for charts, but then we actually apply it in real time
 
-        // Save current actual state
+        // Save current actual state (tüm kaçış değişkenleri dahil)
         let tempState = {
             alt: drone.altitude,
             velY: drone.velocityY,
@@ -642,7 +655,11 @@ function runSimulation() {
             pidX_prevErr: pidX.previousError,
             anchorDist: anchorDist,
             anchorTime: anchorTime,
-            isEscaping: isEscaping
+            isEscaping: isEscaping,
+            escapeTime: escapeTime,
+            escapeCooldown: escapeCooldown,
+            escapeTargetX: escapeTargetX,
+            escapeTargetY: escapeTargetY
         };
 
         for (let i = 0; i < maxSteps; i++) {
@@ -651,28 +668,54 @@ function runSimulation() {
             // STUCK DETECTION LOGIC: Hata payı 1m'den az değişiyorsa
             let currentDist = Math.sqrt(Math.pow(drone.posX - targetX, 2) + Math.pow(drone.altitude - targetY, 2));
 
+            if (escapeCooldown > 0) escapeCooldown -= dt;
+
             if (!isEscaping) {
-                if (Math.abs(currentDist - anchorDist) > 1.0) { // Daha hassas durgunluk tespiti
+                if (Math.abs(currentDist - anchorDist) > 1.0) {
                     anchorDist = currentDist;
                     anchorTime = 0;
                 } else {
                     anchorTime += dt;
                 }
-                if (anchorTime >= 3.0 && currentDist > 5.0) { // Yeşil ışık yanmıyorsa (5m dışındaysa) kaç
+                if (anchorTime >= 3.0 && currentDist > 5.0 && escapeCooldown <= 0) {
                     isEscaping = true;
+                    escapeTime = 0;
+                    // --- Calculate intelligent escape direction ---
+                    // Find nearest obstacle center
+                    let nearestOX = 0, nearestOY = 0, nearestD = Infinity;
+                    for (const obs of obstacles) {
+                        let ox, oy, od;
+                        if (obs.type === 'point') {
+                            ox = obs.x; oy = obs.y;
+                            od = Math.hypot(drone.posX - ox, drone.altitude - oy);
+                        } else {
+                            const r = distToSegment(drone.posX, drone.altitude, obs.x1, obs.y1, obs.x2, obs.y2);
+                            ox = r.closestX; oy = r.closestY; od = r.dist;
+                        }
+                        if (od < nearestD) { nearestD = od; nearestOX = ox; nearestOY = oy; }
+                    }
+                    // Escape direction = away from nearest obstacle
+                    let awayX = drone.posX - nearestOX;
+                    let awayY = drone.altitude - nearestOY;
+                    const awayMag = Math.hypot(awayX, awayY) || 1;
+                    awayX /= awayMag; awayY /= awayMag;
+                    // Escape 20m in that direction
+                    escapeTargetX = drone.posX + awayX * 20.0;
+                    escapeTargetY = Math.max(3.0, drone.altitude + awayY * 20.0);
+                    // Reset PID integrals to clear windup from being stuck
+                    pidY.integral = 0; pidY.previousError = 0;
+                    pidX.integral = 0; pidX.previousError = 0;
                 }
+            } else {
+                escapeTime += dt;
             }
 
-            // Virtual Waypoint: Kaçış planı aktifse geçici bir hedef yarat (Hedefin konumuna göre çapraz kaçış)
+            // Virtual Waypoint: Kaçış planı aktifse geçici bir hedef yarat
             let activeTargetX = targetX;
             let activeTargetY = targetY;
             if (isEscaping) {
-                activeTargetX = drone.posX + 30.0; // Her halükarda X ekseninde +X yönüne kaç
-                if (drone.altitude > targetY) {
-                    activeTargetY = Math.max(5.0, drone.altitude - 20.0); // Drone yukarıdaysa -Y (aşağı) çapraz git
-                } else {
-                    activeTargetY = drone.altitude + 20.0; // Drone aşağıdaysa +Y (yukarı) çapraz git
-                }
+                activeTargetX = escapeTargetX;
+                activeTargetY = escapeTargetY;
             }
 
             // PID kontrolcüsü 'activeTarget'a göre hesaplama yapar
@@ -692,10 +735,16 @@ function runSimulation() {
             let isAvoiding = repulsor.isAvoiding;
             // --------------------------------
 
-            if (isEscaping && (repulsor.minDistanceToObstacle > 5.0 || currentDist <= 5.0)) {
+            // Exit escape: obstacle cleared OR timeout reached
+            if (isEscaping && (repulsor.minDistanceToObstacle > 6.0 || escapeTime >= MAX_ESCAPE_DURATION || currentDist <= 5.0)) {
                 isEscaping = false;
+                escapeTime = 0;
                 anchorTime = 0;
                 anchorDist = currentDist;
+                escapeCooldown = ESCAPE_COOLDOWN_DURATION;
+                // Reset PIDs again so normal flight resumes cleanly
+                pidY.integral = 0; pidY.previousError = 0;
+                pidX.integral = 0; pidX.previousError = 0;
             }
 
             let rawThrustY = hoverThrust + finalControlY;
@@ -722,7 +771,7 @@ function runSimulation() {
 
         const steps = times.length; // Gerçekte hesaplanan ve oynatılacak animasyon frame sayısı
 
-        // Restore actual state for the real-time playback
+        // Restore actual state for the real-time playback (tüm kaçış değişkenleri dahil)
         drone.altitude = tempState.alt;
         drone.velocityY = tempState.velY;
         drone.posX = tempState.posX;
@@ -734,6 +783,10 @@ function runSimulation() {
         anchorDist = tempState.anchorDist;
         anchorTime = tempState.anchorTime;
         isEscaping = tempState.isEscaping;
+        escapeTime = tempState.escapeTime;
+        escapeCooldown = tempState.escapeCooldown;
+        escapeTargetX = tempState.escapeTargetX;
+        escapeTargetY = tempState.escapeTargetY;
 
         // Update Charts
         initCharts();
@@ -776,31 +829,55 @@ function runSimulation() {
 
             // REAL-TIME UPDATE of actual objects (so if user clicks mid-flight, it's correct)
 
-            // STUCK DETECTION LOGIC: Hata payı 1m'den az değişiyorsa
+            // STUCK DETECTION LOGIC
             let currentDist = Math.sqrt(Math.pow(drone.posX - targetX, 2) + Math.pow(drone.altitude - targetY, 2));
+
+            if (escapeCooldown > 0) escapeCooldown -= dt;
+
             if (!isEscaping) {
-                if (Math.abs(currentDist - anchorDist) > 1.0) { // Daha hassas durgunluk tespiti
+                if (Math.abs(currentDist - anchorDist) > 1.0) {
                     anchorDist = currentDist;
                     anchorTime = 0;
                 } else {
                     anchorTime += dt;
                 }
 
-                if (anchorTime >= 3.0 && currentDist > 5.0) { // Yeşil ışık yanmıyorsa kaçışa başla
+                if (anchorTime >= 3.0 && currentDist > 5.0 && escapeCooldown <= 0) {
                     isEscaping = true;
+                    escapeTime = 0;
+                    // Calculate intelligent escape direction away from nearest obstacle
+                    let nearestOX = 0, nearestOY = 0, nearestD = Infinity;
+                    for (const obs of obstacles) {
+                        let ox, oy, od;
+                        if (obs.type === 'point') {
+                            ox = obs.x; oy = obs.y;
+                            od = Math.hypot(drone.posX - ox, drone.altitude - oy);
+                        } else {
+                            const r = distToSegment(drone.posX, drone.altitude, obs.x1, obs.y1, obs.x2, obs.y2);
+                            ox = r.closestX; oy = r.closestY; od = r.dist;
+                        }
+                        if (od < nearestD) { nearestD = od; nearestOX = ox; nearestOY = oy; }
+                    }
+                    let awayX = drone.posX - nearestOX;
+                    let awayY = drone.altitude - nearestOY;
+                    const awayMag = Math.hypot(awayX, awayY) || 1;
+                    awayX /= awayMag; awayY /= awayMag;
+                    escapeTargetX = drone.posX + awayX * 20.0;
+                    escapeTargetY = Math.max(3.0, drone.altitude + awayY * 20.0);
+                    // Reset PID windup
+                    pidY.integral = 0; pidY.previousError = 0;
+                    pidX.integral = 0; pidX.previousError = 0;
                 }
+            } else {
+                escapeTime += dt;
             }
 
-            // Virtual Waypoint: Kaçış planı aktifse geçici bir hedef yarat (Hedefin konumuna göre çapraz kaçış)
+            // Virtual Waypoint: Kaçış planı aktifse geçici bir hedef yarat
             let activeTargetX = targetX;
             let activeTargetY = targetY;
             if (isEscaping) {
-                activeTargetX = drone.posX + 30.0; // Her halükarda X ekseninde +X yönüne kaç
-                if (drone.altitude > targetY) {
-                    activeTargetY = Math.max(5.0, drone.altitude - 20.0); // Drone yukarıdaysa -Y (aşağı) çapraz git
-                } else {
-                    activeTargetY = drone.altitude + 20.0; // Drone aşağıdaysa +Y (yukarı) çapraz git
-                }
+                activeTargetX = escapeTargetX;
+                activeTargetY = escapeTargetY;
             }
 
             let controlY = pidY.calculate(activeTargetY, drone.altitude);
@@ -819,10 +896,15 @@ function runSimulation() {
             let isAvoiding = repulsor.isAvoiding;
             // --------------------------------
 
-            if (isEscaping && (repulsor.minDistanceToObstacle > 5.0 || currentDist <= 5.0)) {
+            // Exit escape: obstacle cleared OR timeout reached
+            if (isEscaping && (repulsor.minDistanceToObstacle > 6.0 || escapeTime >= MAX_ESCAPE_DURATION || currentDist <= 5.0)) {
                 isEscaping = false;
+                escapeTime = 0;
                 anchorTime = 0;
                 anchorDist = currentDist;
+                escapeCooldown = ESCAPE_COOLDOWN_DURATION;
+                pidY.integral = 0; pidY.previousError = 0;
+                pidX.integral = 0; pidX.previousError = 0;
             }
 
             let rawThrustY = hoverThrust + finalControlY;

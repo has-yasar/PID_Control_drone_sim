@@ -578,6 +578,8 @@
                 // Y Axis Physics
                 let accY = (thrustY / this.mass) - this.g;
                 this.velocityY += accY * this.dt;
+                // Hafif hava direnci (Y ekseninde salınımı bastırmak için)
+                this.velocityY *= 0.995;
                 this.altitude += this.velocityY * this.dt;
 
                 if (this.altitude <= 0) {
@@ -585,9 +587,10 @@
                     if (this.velocityY < 0) this.velocityY = 0.0;
                 }
 
-                // X Axis Physics (assuming thrustX directly pushes left/right horizontally for simplicity)
+                // X Axis Physics — gerçekçi hava direnci ile yatay sönümleme
                 let accX = thrustX / this.mass;
                 this.velocityX += accX * this.dt;
+                this.velocityX *= 0.98; // Yatay sürükleme: yalpalamayi önler
                 this.posX += this.velocityX * this.dt;
 
                 return { x: this.posX, y: this.altitude };
@@ -1073,8 +1076,8 @@
 
                     // APF Repulsive Formula -> Smooth exponential spring
                     if (dObj < safeBuffer) {
-                        if (dObj < 0) dObj = 0.1; // clamp to prevent NaN logic anomalies
-                        const penetration = safeBuffer - dObj;
+                        const dObjClamped = Math.max(dObj, 0.1); // clamp to prevent NaN
+                        const penetration = safeBuffer - dObjClamped;
 
                         let pushMag = Math.pow(penetration, 1.4) * (obs.strength * 0.015); // Softer repulsion curve
 
@@ -1147,6 +1150,10 @@
             const targetX = Number(inputs.targetX.value);
             const targetY = Number(inputs.targetY.value);
 
+            // Hedefe olan hata aniden değişince türev spike oluşur — previousError'u sıfırla
+            pidY.previousError = 0;
+            pidX.previousError = 0;
+
             // We NO LONGER reset drone to 0,0 here. We capture the starting visual state if we need to.
             droneEl.style.transition = 'none';
 
@@ -1168,11 +1175,14 @@
                 let anchorDist = Math.hypot(drone.posX - targetX, drone.altitude - targetY);
                 let anchorTime = 0;
                 let isEscaping = false;
+                let escapeTime = 0;          // Kaçış süresi
+                const MAX_ESCAPE_DURATION = 6.0;
+                let escapeCooldown = 0;      // Kaçış sonrası bekleme süreci
+                const ESCAPE_COOLDOWN_DURATION = 2.0;
+                let escapeTargetX = 0;
+                let escapeTargetY = 0;
 
-                // Pre-calculate full simulation sequence from current state
-                // We clone the state so we can pre-calculate for charts, but then we actually apply it in real time
-
-                // Save current actual state
+                // Save current actual state (tüm kaçış değişkenleri dahil)
                 let tempState = {
                     alt: drone.altitude,
                     velY: drone.velocityY,
@@ -1184,36 +1194,64 @@
                     pidX_prevErr: pidX.previousError,
                     anchorDist: anchorDist,
                     anchorTime: anchorTime,
-                    isEscaping: isEscaping
+                    isEscaping: isEscaping,
+                    escapeTime: escapeTime,
+                    escapeCooldown: escapeCooldown,
+                    escapeTargetX: escapeTargetX,
+                    escapeTargetY: escapeTargetY
                 };
 
                 for (let i = 0; i < maxSteps; i++) {
                     let t = globalTime + (i * dt);
 
-                    // STUCK DETECTION LOGIC: Hata payı 1m'den az değişiyorsa
+                    // STUCK DETECTION LOGIC
                     let currentDist = Math.sqrt(Math.pow(drone.posX - targetX, 2) + Math.pow(drone.altitude - targetY, 2));
 
+                    if (escapeCooldown > 0) escapeCooldown -= dt;
+
                     if (!isEscaping) {
-                        if (Math.abs(currentDist - anchorDist) > 1.0) { // Daha hassas durgunluk tespiti
+                        if (Math.abs(currentDist - anchorDist) > 1.0) {
                             anchorDist = currentDist;
                             anchorTime = 0;
                         } else {
                             anchorTime += dt;
                         }
-                        if (anchorTime >= 3.0 && currentDist > 5.0) { // Yeşil ışık yanmıyorsa (5m dışındaysa) kaç
+                        if (anchorTime >= 3.0 && currentDist > 5.0 && escapeCooldown <= 0) {
                             isEscaping = true;
+                            escapeTime = 0;
+                            // En yakın engeli bul, oradan uzaklaşan yöne kaç
+                            let nearestOX = 0, nearestOY = 0, nearestD = Infinity;
+                            for (const obs of obstacles) {
+                                let ox, oy, od;
+                                if (obs.type === 'point') {
+                                    ox = obs.x; oy = obs.y;
+                                    od = Math.hypot(drone.posX - ox, drone.altitude - oy);
+                                } else {
+                                    const r = distToSegment(drone.posX, drone.altitude, obs.x1, obs.y1, obs.x2, obs.y2);
+                                    ox = r.closestX; oy = r.closestY; od = r.dist;
+                                }
+                                if (od < nearestD) { nearestD = od; nearestOX = ox; nearestOY = oy; }
+                            }
+                            let awayX = drone.posX - nearestOX;
+                            let awayY = drone.altitude - nearestOY;
+                            const awayMag = Math.hypot(awayX, awayY) || 1;
+                            awayX /= awayMag; awayY /= awayMag;
+                            escapeTargetX = drone.posX + awayX * 20.0;
+                            escapeTargetY = Math.max(3.0, drone.altitude + awayY * 20.0);
+                            // PID windup'u temizle
+                            pidY.integral = 0; pidY.previousError = 0;
+                            pidX.integral = 0; pidX.previousError = 0;
                         }
+                    } else {
+                        escapeTime += dt;
                     }
 
-                    // Virtual Waypoint: Kaçış planı aktifse geçici bir hedef yarat (Hedefin konumuna göre yatay kayma)
+                    // Virtual Waypoint
                     let activeTargetX = targetX;
                     let activeTargetY = targetY;
                     if (isEscaping) {
-                        // Hedef sağdaysa sağa, soldaysa sola doğru keskin bir ufki kaçış
-                        const dirX = (targetX > drone.posX) ? 1 : -1;
-                        activeTargetX = Math.max(-40.0, Math.min(drone.posX + (30.0 * dirX), 40.0));
-                        // Yüksekliği sabit tut, yatayda engeli aşana kadar bekle
-                        activeTargetY = drone.altitude;
+                        activeTargetX = escapeTargetX;
+                        activeTargetY = escapeTargetY;
                     }
 
                     // PID kontrolcüsü 'activeTarget'a göre hesaplama yapar
@@ -1239,10 +1277,14 @@
                         pidY.integral *= 0.95;
                     }
 
-                    if (isEscaping && (repulsor.minDistanceToObstacle > 5.0 || currentDist <= 5.0)) {
+                    if (isEscaping && (repulsor.minDistanceToObstacle > 6.0 || escapeTime >= MAX_ESCAPE_DURATION || currentDist <= 5.0)) {
                         isEscaping = false;
+                        escapeTime = 0;
                         anchorTime = 0;
                         anchorDist = currentDist;
+                        escapeCooldown = ESCAPE_COOLDOWN_DURATION;
+                        pidY.integral = 0; pidY.previousError = 0;
+                        pidX.integral = 0; pidX.previousError = 0;
                     }
 
                     let rawThrustY = hoverThrust + finalControlY;
@@ -1269,7 +1311,7 @@
 
                 const steps = times.length; // Gerçekte hesaplanan ve oynatılacak animasyon frame sayısı
 
-                // Restore actual state for the real-time playback
+                // Restore actual state (tüm kaçış değişkenleri dahil)
                 drone.altitude = tempState.alt;
                 drone.velocityY = tempState.velY;
                 drone.posX = tempState.posX;
@@ -1281,6 +1323,10 @@
                 anchorDist = tempState.anchorDist;
                 anchorTime = tempState.anchorTime;
                 isEscaping = tempState.isEscaping;
+                escapeTime = tempState.escapeTime;
+                escapeCooldown = tempState.escapeCooldown;
+                escapeTargetX = tempState.escapeTargetX;
+                escapeTargetY = tempState.escapeTargetY;
 
                 // Update Charts
                 initCharts();
@@ -1327,30 +1373,53 @@
 
                     // REAL-TIME UPDATE of actual objects (so if user clicks mid-flight, it's correct)
 
-                    // STUCK DETECTION LOGIC: Hata payı 1m'den az değişiyorsa
+                    // STUCK DETECTION LOGIC
                     let currentDist = Math.sqrt(Math.pow(drone.posX - targetX, 2) + Math.pow(drone.altitude - targetY, 2));
+
+                    if (escapeCooldown > 0) escapeCooldown -= dt;
+
                     if (!isEscaping) {
-                        if (Math.abs(currentDist - anchorDist) > 1.0) { // Daha hassas durgunluk tespiti
+                        if (Math.abs(currentDist - anchorDist) > 1.0) {
                             anchorDist = currentDist;
                             anchorTime = 0;
                         } else {
                             anchorTime += dt;
                         }
 
-                        if (anchorTime >= 3.0 && currentDist > 5.0) { // Yeşil ışık yanmıyorsa kaçışa başla
+                        if (anchorTime >= 3.0 && currentDist > 5.0 && escapeCooldown <= 0) {
                             isEscaping = true;
+                            escapeTime = 0;
+                            let nearestOX = 0, nearestOY = 0, nearestD = Infinity;
+                            for (const obs of obstacles) {
+                                let ox, oy, od;
+                                if (obs.type === 'point') {
+                                    ox = obs.x; oy = obs.y;
+                                    od = Math.hypot(drone.posX - ox, drone.altitude - oy);
+                                } else {
+                                    const r = distToSegment(drone.posX, drone.altitude, obs.x1, obs.y1, obs.x2, obs.y2);
+                                    ox = r.closestX; oy = r.closestY; od = r.dist;
+                                }
+                                if (od < nearestD) { nearestD = od; nearestOX = ox; nearestOY = oy; }
+                            }
+                            let awayX = drone.posX - nearestOX;
+                            let awayY = drone.altitude - nearestOY;
+                            const awayMag = Math.hypot(awayX, awayY) || 1;
+                            awayX /= awayMag; awayY /= awayMag;
+                            escapeTargetX = drone.posX + awayX * 20.0;
+                            escapeTargetY = Math.max(3.0, drone.altitude + awayY * 20.0);
+                            pidY.integral = 0; pidY.previousError = 0;
+                            pidX.integral = 0; pidX.previousError = 0;
                         }
+                    } else {
+                        escapeTime += dt;
                     }
 
-                    // Virtual Waypoint: Kaçış planı aktifse geçici bir hedef yarat (Hedefin konumuna göre yatay kayma)
+                    // Virtual Waypoint
                     let activeTargetX = targetX;
                     let activeTargetY = targetY;
                     if (isEscaping) {
-                        // Hedef sağdaysa sağa, soldaysa sola doğru keskin bir ufki kaçış
-                        const dirX = (targetX > drone.posX) ? 1 : -1;
-                        activeTargetX = Math.max(-40.0, Math.min(drone.posX + (30.0 * dirX), 40.0));
-                        // Yüksekliği sabit tut, yatayda engeli aşana kadar bekle
-                        activeTargetY = drone.altitude;
+                        activeTargetX = escapeTargetX;
+                        activeTargetY = escapeTargetY;
                     }
 
                     let controlY = pidY.calculate(activeTargetY, drone.altitude);
@@ -1375,10 +1444,14 @@
                         pidY.integral *= 0.95;
                     }
 
-                    if (isEscaping && (repulsor.minDistanceToObstacle > 5.0 || currentDist <= 5.0)) {
+                    if (isEscaping && (repulsor.minDistanceToObstacle > 6.0 || escapeTime >= MAX_ESCAPE_DURATION || currentDist <= 5.0)) {
                         isEscaping = false;
+                        escapeTime = 0;
                         anchorTime = 0;
                         anchorDist = currentDist;
+                        escapeCooldown = ESCAPE_COOLDOWN_DURATION;
+                        pidY.integral = 0; pidY.previousError = 0;
+                        pidX.integral = 0; pidX.previousError = 0;
                     }
 
                     let rawThrustY = hoverThrust + finalControlY;
@@ -1400,7 +1473,10 @@
 
                     // Obstacle Status UI Text
                     const obstacleStatusEl = document.getElementById('obstacle-status');
-                    if (isAvoiding) {
+                    if (isEscaping) {
+                        obstacleStatusEl.className = 'status-indicator warning';
+                        obstacleStatusEl.innerHTML = `🚨 Kaçış Planı Aktif<br><span style="font-size: 0.85em; font-weight: normal; opacity: 0.9;">Engel çevresinden ayrılıyor...</span>`;
+                    } else if (isAvoiding) {
                         obstacleStatusEl.className = 'status-indicator warning';
                         obstacleStatusEl.innerHTML = `⚠️ Engel Algılandı!<br><span style="font-size: 0.85em; font-weight: normal; opacity: 0.9;">Mesafe: ${Math.max(0, repulsor.minDistanceToObstacle).toFixed(2)} m</span>`;
                     } else {
